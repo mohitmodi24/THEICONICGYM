@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Gym Fee Manager</title>
+<style>
+:root{--bg:#f3f4f6;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#16a34a;--red:#dc2626}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,sans-serif}
+header{background:#111827;color:#fff;padding:20px 16px 16px;position:sticky;top:0;z-index:3}
+header h1{font-size:21px;margin:0 0 4px}header p{margin:0;color:#cbd5e1;font-size:13px}
+main{max-width:900px;margin:auto;padding:14px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:13px}
+.stat,.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px}
+.stat b{display:block;font-size:21px}.stat span{font-size:12px;color:var(--muted)}
+.tabs{display:flex;gap:7px;overflow:auto;margin:0 0 12px}
+button,.tab{border:0;border-radius:10px;padding:10px 12px;font-weight:650;cursor:pointer;background:#e5e7eb;color:#111827}
+.tab.active,button.primary{background:#111827;color:#fff}.tab{white-space:nowrap}
+.panel{margin-bottom:12px}.panel h2{font-size:17px;margin:0 0 12px}
+label{display:block;font-size:13px;font-weight:650;margin:9px 0 5px}
+input,select{width:100%;padding:11px;border:1px solid #d1d5db;border-radius:9px;background:#fff;font:inherit}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+button.small{font-size:12px;padding:8px 10px}button.green{background:#dcfce7;color:#166534}button.red{background:#fee2e2;color:#991b1b}
+.member{border:1px solid var(--line);border-radius:12px;padding:12px;margin:9px 0;background:#fff}
+.membertop{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.member h3{margin:0;font-size:16px}.muted{color:var(--muted);font-size:12px}
+.pill{font-size:11px;padding:4px 8px;border-radius:99px;background:#fef3c7;color:#92400e;white-space:nowrap}
+.pill.paid{background:#dcfce7;color:#166534}
+.hidden{display:none!important}.empty{text-align:center;color:var(--muted);padding:24px}
+footer{color:var(--muted);font-size:11px;text-align:center;padding:15px}
+@media(max-width:520px){.stats{grid-template-columns:repeat(3,1fr)}.stat{padding:10px}.stat b{font-size:18px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>🏋️ Gym Fee Manager</h1><p>Offline member, fee & attendance records</p></header>
+<main>
+<div class="stats">
+ <div class="stat"><b id="total">0</b><span>Total members</span></div>
+ <div class="stat"><b id="due">0</b><span>Fee due</span></div>
+ <div class="stat"><b id="paid">0</b><span>Paid this cycle</span></div>
+</div>
+<nav class="tabs">
+ <button class="tab active" data-tab="members">Members</button>
+ <button class="tab" data-tab="add">Add member</button>
+ <button class="tab" data-tab="attendance">Attendance</button>
+ <button class="tab" data-tab="backup">Backup</button>
+</nav>
+<section id="members" class="view">
+ <div class="panel">
+  <input id="search" placeholder="Search member by name or phone..." oninput="renderMembers()">
+ </div>
+ <div id="memberList"></div>
+</section>
+<section id="add" class="view hidden">
+ <div class="panel">
+  <h2 id="formTitle">Add new member</h2>
+  <form id="memberForm">
+   <input type="hidden" id="editId">
+   <label>Member name *</label><input id="name" required maxlength="60" placeholder="Full name">
+   <div class="grid2">
+    <div><label>Mobile number</label><input id="phone" inputmode="tel" maxlength="15" placeholder="WhatsApp number"></div>
+    <div><label>Monthly fee (₹) *</label><input id="fee" type="number" min="0" required placeholder="1000"></div>
+   </div>
+   <label>Joining date *</label><input id="joining" type="date" required>
+   <div class="actions"><button class="primary" type="submit">Save member</button><button type="button" onclick="resetForm()">Clear</button></div>
+  </form>
+ </div>
+</section>
+<section id="attendance" class="view hidden">
+ <div class="panel">
+  <h2>Daily attendance</h2>
+  <label>Select date</label><input id="attDate" type="date">
+  <label>Find member</label><input id="attSearch" placeholder="Search..." oninput="renderAttendance()">
+  <div id="attendanceList"></div>
+ </div>
+</section>
+<section id="backup" class="view hidden">
+ <div class="panel">
+  <h2>Backup & restore</h2>
+  <p class="muted">Your records stay on this device. Export a backup regularly, especially before changing phones or clearing browser data.</p>
+  <div class="actions"><button class="primary" onclick="exportBackup()">Download backup</button><button onclick="document.getElementById('restoreFile').click()">Restore backup</button><input id="restoreFile" class="hidden" type="file" accept="application/json" onchange="restoreBackup(event)"></div>
+  <p class="muted" style="margin-top:14px">WhatsApp reminders need an internet connection. The app opens a pre-filled message; tap Send in WhatsApp.</p>
+ </div>
+ <div class="panel"><h2>Data note</h2><p class="muted">This version stores data locally in this browser on this device. It does not sync automatically between Android and iPhone.</p></div>
+</section>
+<footer>Gym Fee Manager • Offline-first • Keep regular backups</footer>
+</main>
+<script>
+const KEY='gymFeeManager_v1';
+let db=loadDB();
+function loadDB(){try{return JSON.parse(localStorage.getItem(KEY))||{members:[],attendance:{}}}catch(e){return {members:[],attendance:{}}}}
+function save(){localStorage.setItem(KEY,JSON.stringify(db));updateStats()}
+function today(){return new Date().toISOString().slice(0,10)}
+function parseDate(s){const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function dateStr(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')}
+function addMonthsClamped(date,months){let y=date.getFullYear(),m=date.getMonth()+months,day=date.getDate();let first=new Date(y,m,1);let last=new Date(first.getFullYear(),first.getMonth()+1,0).getDate();return new Date(first.getFullYear(),first.getMonth(),Math.min(day,last))}
+function cycleFor(member,now=new Date()){
+ const join=parseDate(member.joining);let n=0;
+ while(addMonthsClamped(join,n+1)<=now && n<2400)n++;
+ const start=addMonthsClamped(join,n), next=addMonthsClamped(join,n+1);
+ return {start:dateStr(start),due:dateStr(next),paid:member.paidCycle===dateStr(start)};
+}
+function updateStats(){let ms=db.members;document.getElementById('total').textContent=ms.length;document.getElementById('due').textContent=ms.filter(m=>!cycleFor(m).paid).length;document.getElementById('paid').textContent=ms.filter(m=>cycleFor(m).paid).length}
+function switchTab(tab){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('hidden',v.id!==tab));document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='members')renderMembers();if(tab==='attendance')renderAttendance()}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function renderMembers(){
+ const q=document.getElementById('search').value.toLowerCase();let list=db.members.filter(m=>(m.name+' '+m.phone).toLowerCase().includes(q));
+ const root=document.getElementById('memberList');
+ if(!list.length){root.innerHTML='<div class="empty">No members found. Tap Add member to get started.</div>';return}
+ root.innerHTML=list.map(m=>{let c=cycleFor(m);return `<article class="member">
+ <div class="membertop"><div><h3>${esc(m.name)}</h3><div class="muted">${esc(m.phone||'No phone')} • ₹${Number(m.fee).toLocaleString('en-IN')}/month</div></div><span class="pill ${c.paid?'paid':''}">${c.paid?'Paid':'Fee due'}</span></div>
+ <div class="muted" style="margin-top:8px">Joined: ${esc(m.joining)} • Current cycle: ${c.start} to ${c.due}</div>
+ <div class="actions">
+ <button class="small green" onclick="markPaid('${m.id}')">${c.paid?'Paid ✓':'Mark paid'}</button>
+ <button class="small" onclick="remind('${m.id}')">WhatsApp reminder</button>
+ <button class="small" onclick="editMember('${m.id}')">Edit</button>
+ <button class="small red" onclick="deleteMember('${m.id}')">Delete</button>
+ </div></article>`}).join('');
+}
+function resetForm(){document.getElementById('memberForm').reset();document.getElementById('editId').value='';document.getElementById('formTitle').textContent='Add new member';document.getElementById('joining').value=today()}
+function editMember(id){let m=db.members.find(x=>x.id===id);if(!m)return;document.getElementById('editId').value=id;document.getElementById('name').value=m.name;document.getElementById('phone').value=m.phone||'';document.getElementById('fee').value=m.fee;document.getElementById('joining').value=m.joining;document.getElementById('formTitle').textContent='Edit member';switchTab('add')}
+document.getElementById('memberForm').addEventListener('submit',e=>{e.preventDefault();let id=document.getElementById('editId').value;let old=db.members.find(m=>m.id===id);let m={id:id||('m'+Date.now()+Math.random().toString(16).slice(2,6)),name:document.getElementById('name').value.trim(),phone:document.getElementById('phone').value.trim(),fee:Number(document.getElementById('fee').value),joining:document.getElementById('joining').value,paidCycle:old?.paidCycle||''};if(!m.name||!m.joining||m.fee<0)return;if(old)Object.assign(old,m);else db.members.push(m);save();resetForm();switchTab('members')});
+function markPaid(id){let m=db.members.find(x=>x.id===id);if(!m)return;let c=cycleFor(m);if(!c.paid){m.paidCycle=c.start;save();renderMembers()}}
+function remind(id){let m=db.members.find(x=>x.id===id);if(!m)return;if(!m.phone){alert('Please add the member mobile number first.');return}let phone=m.phone.replace(/\D/g,'');if(phone.length===10)phone='91'+phone;let msg=`Hello ${m.name}, aapki gym fee ₹${m.fee} due hai. Kripya samay par payment kar dein. Thank you!`;window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(msg),'_blank')}
+function deleteMember(id){let m=db.members.find(x=>x.id===id);if(!m||!confirm('Delete '+m.name+'? This cannot be undone unless you have a backup.'))return;db.members=db.members.filter(x=>x.id!==id);save();renderMembers()}
+function renderAttendance(){
+ let date=document.getElementById('attDate').value||today(),q=document.getElementById('attSearch').value.toLowerCase();let root=document.getElementById('attendanceList');
+ let ms=db.members.filter(m=>m.name.toLowerCase().includes(q)||(m.phone||'').includes(q));
+ if(!ms.length){root.innerHTML='<div class="empty">No members found.</div>';return}
+ root.innerHTML=ms.map(m=>{let status=db.attendance[date]?.[m.id]||'';return `<div class="member"><div class="membertop"><div><b>${esc(m.name)}</b><div class="muted">${esc(m.phone||'')}</div></div><span class="pill ${status==='Present'?'paid':''}">${status||'Not marked'}</span></div><div class="actions"><button class="small green" onclick="setAttendance('${date}','${m.id}','Present')">Present</button><button class="small red" onclick="setAttendance('${date}','${m.id}','Absent')">Absent</button><button class="small" onclick="setAttendance('${date}','${m.id}','')">Clear</button></div></div>`}).join('');
+}
+function setAttendance(date,id,status){if(!db.attendance[date])db.attendance[date]={};if(status)db.attendance[date][id]=status;else delete db.attendance[date][id];save();renderAttendance()}
+document.getElementById('attDate').value=today();document.getElementById('attDate').addEventListener('change',renderAttendance);
+function exportBackup(){let blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='gym-fee-backup-'+today()+'.json';a.click();URL.revokeObjectURL(url)}
+function restoreBackup(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!Array.isArray(x.members)||typeof x.attendance!=='object')throw Error();if(!confirm('Restore this backup? Current records will be replaced.'))return;db=x;save();renderMembers();alert('Backup restored.')}catch(err){alert('Invalid backup file.')}e.target.value=''};r.readAsText(f)}
+updateStats();renderMembers();resetForm();
+</script>
+</body></html>
